@@ -1,4 +1,5 @@
 // lib/main.dart
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
@@ -10,12 +11,30 @@ import 'services/recording_service.dart';
 import 'services/speech_to_text_service.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/home/home_screen.dart';
+import 'firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Firebase
-  await Firebase.initializeApp();
+  try {
+    print('Initializing Firebase...');
+
+    // Initialize Firebase with timeout
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    ).timeout(
+      const Duration(seconds: 30),
+      onTimeout: () {
+        print('Firebase initialization timed out');
+        throw Exception('Firebase initialization timeout');
+      },
+    );
+
+    print('Firebase initialized successfully');
+  } catch (e) {
+    print('Firebase initialization error: $e');
+    // Show error dialog or retry logic here
+  }
 
   runApp(const MyApp());
 }
@@ -31,7 +50,14 @@ class MyApp extends StatelessWidget {
         Provider<DatabaseService>(create: (_) => DatabaseService()),
 
         // Auth Service
-        Provider<AuthService>(create: (_) => AuthService()),
+        Provider<AuthService>(
+          create: (_) {
+            final authService = AuthService();
+            // Set persistence for auth state
+            authService.setPersistence();
+            return authService;
+          },
+        ),
 
         // Signaling Service
         Provider<SignalingService>(create: (_) => SignalingService()),
@@ -78,19 +104,59 @@ class AuthWrapper extends StatelessWidget {
   Widget build(BuildContext context) {
     final authService = context.read<AuthService>();
 
-    return StreamBuilder(
+    return StreamBuilder<User?>(
       stream: authService.authStateChanges,
       builder: (context, snapshot) {
+        // Show loading while checking auth state
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('Loading...'),
+                ],
+              ),
+            ),
           );
         }
 
-        if (snapshot.hasData) {
+        // Show error if there's an error
+        if (snapshot.hasError) {
+          return Scaffold(
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                  const SizedBox(height: 16),
+                  Text('Error: ${snapshot.error}'),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () {
+                      // Retry logic
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(builder: (_) => const AuthWrapper()),
+                      );
+                    },
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        // Navigate based on auth state
+        if (snapshot.hasData && snapshot.data != null) {
+          print('User authenticated: ${snapshot.data!.uid}');
           return const HomeScreen();
         }
 
+        print('User not authenticated');
         return const LoginScreen();
       },
     );

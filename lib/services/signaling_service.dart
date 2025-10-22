@@ -14,7 +14,8 @@ class SignalingService {
   // Update this with your signaling server URL
   // For development: http://localhost:3000
   // For production: https://your-server.render.com
-  static const String signalingServerUrl = 'YOUR_SIGNALING_SERVER_URL';
+  static const String signalingServerUrl =
+      'https://voice-calling-application-with-webrtc.onrender.com';
 
   // Initialize signaling connection
   Future<void> initialize(String userId) async {

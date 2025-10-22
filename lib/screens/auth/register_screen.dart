@@ -1,7 +1,9 @@
 // lib/screens/auth/register_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'dart:async';
 import '../../services/auth_service.dart';
+import '../../utils/helpers.dart';
 import '../home/home_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -31,11 +33,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _register() async {
+    // Validate form
     if (!_formKey.currentState!.validate()) return;
 
     // Check if passwords match
     if (_passwordController.text != _confirmPasswordController.text) {
-      _showError('Passwords do not match');
+      Helpers.showErrorSnackBar(context, 'Passwords do not match');
+      return;
+    }
+
+    // Check internet connection first
+    final hasInternet = await Helpers.checkInternetConnection();
+    if (!hasInternet && mounted) {
+      Helpers.showErrorSnackBar(
+        context,
+        'No internet connection. Please check your network and try again.',
+      );
       return;
     }
 
@@ -43,68 +56,84 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     try {
       final authService = context.read<AuthService>();
+      final email = _emailController.text.trim();
+      final name = _nameController.text.trim();
 
-      // Add timeout to prevent hanging
-      await authService
+      print('📝 Attempting registration for: $email');
+
+      // Sign up with timeout
+      final userCredential = await authService
           .signUpWithEmail(
-            email: _emailController.text.trim(),
+            email: email,
             password: _passwordController.text,
-            name: _nameController.text.trim(),
+            name: name,
           )
           .timeout(
             const Duration(seconds: 30),
             onTimeout: () {
-              throw Exception(
+              throw TimeoutException(
                 'Registration timeout. Please check your internet connection.',
               );
             },
           );
 
-      if (mounted) {
+      if (userCredential != null && mounted) {
+        print('✅ Registration successful: ${userCredential.user?.uid}');
+
         // Show success message
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Account created successfully!'),
-            backgroundColor: Colors.green,
-          ),
+        Helpers.showSuccessSnackBar(
+          context,
+          'Welcome, $name! Your account has been created successfully.',
         );
 
-        // Navigate to home screen
-        Navigator.pushAndRemoveUntil(
+        // Wait for auth state to propagate
+        await Future.delayed(const Duration(milliseconds: 500));
+
+        // Navigate to home screen and remove all previous routes
+        if (mounted) {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (_) => const HomeScreen()),
+            (route) => false,
+          );
+        }
+      }
+    } on TimeoutException catch (e) {
+      print('⏱️ Timeout error: $e');
+      if (mounted) {
+        Helpers.showErrorSnackBar(
           context,
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-          (route) => false,
+          'Registration timeout. Please check your internet connection and try again.',
         );
       }
     } catch (e) {
-      print('Registration error: $e');
-      _showError(_getErrorMessage(e.toString()));
+      print('❌ Registration error: $e');
+      if (mounted) {
+        Helpers.showErrorSnackBar(context, _getErrorMessage(e.toString()));
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
   String _getErrorMessage(String error) {
-    if (error.contains('network')) {
+    // Handle specific error messages
+    if (error.contains('network-request-failed') || error.contains('network')) {
       return 'Network error. Please check your internet connection.';
     } else if (error.contains('email-already-in-use')) {
-      return 'This email is already registered.';
+      return 'This email is already registered. Please sign in instead.';
     } else if (error.contains('weak-password')) {
-      return 'Password is too weak. Use at least 6 characters.';
+      return 'Password is too weak. Please use at least 6 characters.';
+    } else if (error.contains('invalid-email')) {
+      return 'Invalid email address format.';
     } else if (error.contains('timeout')) {
-      return 'Request timeout. Please try again.';
+      return 'Request timeout. Please check your connection and try again.';
+    } else if (error.contains('operation-not-allowed')) {
+      return 'Email/password registration is not enabled.';
     }
-    return 'Registration failed. Please try again.';
-  }
 
-  void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-        duration: const Duration(seconds: 4),
-      ),
-    );
+    // Return a generic message if no specific match
+    return 'Registration failed. Please try again.';
   }
 
   @override
@@ -113,8 +142,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
+          onPressed: _isLoading ? null : () => Navigator.pop(context),
         ),
+        title: const Text('Create Account'),
       ),
       body: SafeArea(
         child: Center(
@@ -143,7 +173,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   // Title
                   const Text(
-                    'Create Account',
+                    'Join Us Today',
                     style: TextStyle(
                       fontSize: 32,
                       fontWeight: FontWeight.bold,
@@ -152,7 +182,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    'Sign up to get started',
+                    'Create your account to get started',
                     style: TextStyle(fontSize: 16, color: Colors.white70),
                   ),
                   const SizedBox(height: 40),
@@ -161,8 +191,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   TextFormField(
                     controller: _nameController,
                     style: const TextStyle(color: Colors.white),
+                    textCapitalization: TextCapitalization.words,
                     decoration: InputDecoration(
                       labelText: 'Full Name',
+                      hintText: 'Enter your full name',
                       prefixIcon: const Icon(Icons.person),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -171,11 +203,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       fillColor: Colors.white10,
                     ),
                     validator: (value) {
-                      if (value == null || value.isEmpty) {
+                      if (Helpers.isNullOrEmpty(value)) {
                         return 'Please enter your name';
                       }
-                      if (value.length < 2) {
+                      if (value!.length < 2) {
                         return 'Name must be at least 2 characters';
+                      }
+                      if (value.length > 50) {
+                        return 'Name is too long';
                       }
                       return null;
                     },
@@ -189,6 +224,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     style: const TextStyle(color: Colors.white),
                     decoration: InputDecoration(
                       labelText: 'Email',
+                      hintText: 'Enter your email',
                       prefixIcon: const Icon(Icons.email),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -197,13 +233,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       fillColor: Colors.white10,
                     ),
                     validator: (value) {
-                      if (value == null || value.isEmpty) {
+                      if (Helpers.isNullOrEmpty(value)) {
                         return 'Please enter your email';
                       }
-                      if (!RegExp(
-                        r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$',
-                      ).hasMatch(value)) {
-                        return 'Please enter a valid email';
+                      if (!Helpers.isValidEmail(value!)) {
+                        return 'Please enter a valid email address';
                       }
                       return null;
                     },
@@ -217,6 +251,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     style: const TextStyle(color: Colors.white),
                     decoration: InputDecoration(
                       labelText: 'Password',
+                      hintText: 'Create a password',
                       prefixIcon: const Icon(Icons.lock),
                       suffixIcon: IconButton(
                         icon: Icon(
@@ -235,15 +270,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       fillColor: Colors.white10,
                     ),
                     validator: (value) {
-                      if (value == null || value.isEmpty) {
+                      if (Helpers.isNullOrEmpty(value)) {
                         return 'Please enter a password';
                       }
-                      if (value.length < 6) {
+                      if (value!.length < 6) {
                         return 'Password must be at least 6 characters';
+                      }
+                      if (value.length > 50) {
+                        return 'Password is too long';
                       }
                       return null;
                     },
+                    onChanged: (value) {
+                      // Optional: Add password strength indicator
+                      setState(() {});
+                    },
                   ),
+
+                  // Password strength indicator
+                  if (_passwordController.text.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    _buildPasswordStrengthIndicator(),
+                  ],
+
                   const SizedBox(height: 16),
 
                   // Confirm Password field
@@ -253,6 +302,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     style: const TextStyle(color: Colors.white),
                     decoration: InputDecoration(
                       labelText: 'Confirm Password',
+                      hintText: 'Re-enter your password',
                       prefixIcon: const Icon(Icons.lock_outline),
                       suffixIcon: IconButton(
                         icon: Icon(
@@ -274,8 +324,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       fillColor: Colors.white10,
                     ),
                     validator: (value) {
-                      if (value == null || value.isEmpty) {
+                      if (Helpers.isNullOrEmpty(value)) {
                         return 'Please confirm your password';
+                      }
+                      if (value != _passwordController.text) {
+                        return 'Passwords do not match';
                       }
                       return null;
                     },
@@ -290,27 +343,37 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       onPressed: _isLoading ? null : _register,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.blue,
+                        disabledBackgroundColor: Colors.blue.withOpacity(0.5),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
                       child: _isLoading
                           ? const SizedBox(
-                              height: 20,
-                              width: 20,
+                              height: 24,
+                              width: 24,
                               child: CircularProgressIndicator(
                                 color: Colors.white,
-                                strokeWidth: 2,
+                                strokeWidth: 2.5,
                               ),
                             )
                           : const Text(
-                              'Sign Up',
+                              'Create Account',
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
+                                color: Colors.white,
                               ),
                             ),
                     ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Terms and conditions
+                  const Text(
+                    'By signing up, you agree to our Terms & Privacy Policy',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12, color: Colors.white60),
                   ),
                   const SizedBox(height: 16),
 
@@ -323,7 +386,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         style: TextStyle(color: Colors.white70),
                       ),
                       TextButton(
-                        onPressed: () => Navigator.pop(context),
+                        onPressed: _isLoading
+                            ? null
+                            : () => Navigator.pop(context),
                         child: const Text(
                           'Sign In',
                           style: TextStyle(
@@ -341,5 +406,70 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildPasswordStrengthIndicator() {
+    final password = _passwordController.text;
+    final strength = _calculatePasswordStrength(password);
+
+    Color strengthColor;
+    String strengthText;
+
+    if (strength < 0.3) {
+      strengthColor = Colors.red;
+      strengthText = 'Weak';
+    } else if (strength < 0.7) {
+      strengthColor = Colors.orange;
+      strengthText = 'Medium';
+    } else {
+      strengthColor = Colors.green;
+      strengthText = 'Strong';
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: LinearProgressIndicator(
+                value: strength,
+                backgroundColor: Colors.white10,
+                valueColor: AlwaysStoppedAnimation<Color>(strengthColor),
+                minHeight: 4,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              strengthText,
+              style: TextStyle(
+                color: strengthColor,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  double _calculatePasswordStrength(String password) {
+    if (password.isEmpty) return 0;
+
+    double strength = 0;
+
+    // Length check
+    if (password.length >= 6) strength += 0.2;
+    if (password.length >= 8) strength += 0.2;
+    if (password.length >= 12) strength += 0.1;
+
+    // Character variety
+    if (password.contains(RegExp(r'[a-z]'))) strength += 0.15;
+    if (password.contains(RegExp(r'[A-Z]'))) strength += 0.15;
+    if (password.contains(RegExp(r'[0-9]'))) strength += 0.1;
+    if (password.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>]'))) strength += 0.1;
+
+    return strength > 1.0 ? 1.0 : strength;
   }
 }
