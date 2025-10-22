@@ -50,7 +50,9 @@ class WebRTCService {
     };
 
     _signalingService.onCallEnded = () {
-      endCall();
+      print('Call ended by remote peer');
+      // Don't call endCall() here - just cleanup and notify UI
+      _cleanupWithoutSignaling();
     };
   }
 
@@ -318,6 +320,88 @@ class WebRTCService {
       print('Call cleanup completed');
     } catch (e) {
       print('Error in endCall: $e');
+    } finally {
+      _isEnding = false;
+    }
+  }
+
+  // Cleanup without sending signaling messages (for remote-initiated end)
+  Future<void> _cleanupWithoutSignaling() async {
+    if (_isEnding) {
+      print('Already ending call, ignoring duplicate request');
+      return;
+    }
+
+    _isEnding = true;
+    print('WebRTC: Starting cleanup without signaling');
+
+    try {
+      // Stop recording first
+      try {
+        await _recordingService.stopRecording();
+        print('Recording stopped');
+      } catch (e) {
+        print('Error stopping recording: $e');
+      }
+
+      // Close peer connection
+      try {
+        if (_peerConnection != null) {
+          await _peerConnection!.close();
+          _peerConnection = null;
+          print('Peer connection closed');
+        }
+      } catch (e) {
+        print('Error closing peer connection: $e');
+      }
+
+      // Stop and dispose local stream
+      try {
+        if (_localStream != null) {
+          _localStream!.getTracks().forEach((track) {
+            try {
+              track.stop();
+            } catch (e) {
+              print('Error stopping local track: $e');
+            }
+          });
+          await _localStream!.dispose();
+          _localStream = null;
+          print('Local stream disposed');
+        }
+      } catch (e) {
+        print('Error disposing local stream: $e');
+      }
+
+      // Stop and dispose remote stream
+      try {
+        if (_remoteStream != null) {
+          _remoteStream!.getTracks().forEach((track) {
+            try {
+              track.stop();
+            } catch (e) {
+              print('Error stopping remote track: $e');
+            }
+          });
+          await _remoteStream!.dispose();
+          _remoteStream = null;
+          print('Remote stream disposed');
+        }
+      } catch (e) {
+        print('Error disposing remote stream: $e');
+      }
+
+      // Notify UI (but NOT signaling service)
+      try {
+        onCallEnded?.call();
+        print('UI notified of call end');
+      } catch (e) {
+        print('Error notifying UI: $e');
+      }
+
+      print('Cleanup without signaling completed');
+    } catch (e) {
+      print('Error in _cleanupWithoutSignaling: $e');
     } finally {
       _isEnding = false;
     }

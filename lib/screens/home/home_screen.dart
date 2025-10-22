@@ -7,6 +7,7 @@ import '../../services/signaling_service.dart';
 import '../../models/contact_model.dart';
 import '../contacts/add_contact_screen.dart';
 import '../call/call_screen.dart';
+import '../call/incoming_call_screen.dart'; // ✅ ADD THIS IMPORT
 import '../recordings/recordings_screen.dart';
 import '../call_logs/call_logs_screen.dart';
 import 'package:uuid/uuid.dart';
@@ -40,7 +41,46 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (authService.currentUserId != null) {
       await signalingService.initialize(authService.currentUserId!);
+
+      // ✅ ADD THIS: Setup incoming call listener
+      _setupIncomingCallListener(signalingService);
     }
+  }
+
+  // ✅ ADD THIS METHOD
+  void _setupIncomingCallListener(SignalingService signalingService) {
+    signalingService.onIncomingCall = (offer, from, callerName) {
+      print('📞 Incoming call detected from: $callerName ($from)');
+
+      if (!mounted) {
+        print('⚠️ Widget not mounted, ignoring incoming call');
+        return;
+      }
+
+      // Create a contact model for the caller
+      final contact = ContactModel(
+        userId: from,
+        name: callerName,
+        phone: null,
+        email: null,
+        id: '', // Temporary ID for incoming call
+        createdAt: DateTime.now(), // ✅ Added required parameter
+      );
+
+      // Navigate to incoming call screen
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => IncomingCallScreen(
+            contact: contact,
+            callerId: from,
+            offer: offer,
+          ),
+        ),
+      );
+    };
+
+    print('✅ Incoming call listener setup complete');
   }
 
   Future<void> _loadContacts() async {
@@ -645,8 +685,6 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 }
-
-// Add import at the top
 
 // Contact Search Delegate
 class ContactSearchDelegate extends SearchDelegate<ContactModel?> {

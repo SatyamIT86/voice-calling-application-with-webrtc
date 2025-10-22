@@ -4,6 +4,7 @@ import 'package:socket_io_client/socket_io_client.dart' as IO;
 class SignalingService {
   IO.Socket? _socket;
   String? _currentUserId;
+  String? _currentCallPeerId; // Track the peer we're in a call with
 
   // Callbacks
   Function(String offer, String from, String callerName)? onIncomingCall;
@@ -11,9 +12,6 @@ class SignalingService {
   Function(Map<String, dynamic> candidate)? onIceCandidate;
   Function()? onCallEnded;
 
-  // Update this with your signaling server URL
-  // For development: http://localhost:3000
-  // For production: https://your-server.render.com
   static const String signalingServerUrl =
       'https://voice-calling-application-with-webrtc.onrender.com';
 
@@ -61,6 +59,7 @@ class SignalingService {
     // Handle incoming call
     _socket!.on('incoming-call', (data) {
       print('Incoming call from: ${data['from']}');
+      _currentCallPeerId = data['from']; // Store peer ID
       onIncomingCall?.call(
         data['offer'],
         data['from'],
@@ -83,6 +82,7 @@ class SignalingService {
     // Handle call ended
     _socket!.on('call-ended', (_) {
       print('Call ended by remote peer');
+      _currentCallPeerId = null;
       onCallEnded?.call();
     });
 
@@ -105,6 +105,7 @@ class SignalingService {
       throw Exception('Not connected to signaling server');
     }
 
+    _currentCallPeerId = targetUserId; // Store peer ID
     _socket!.emit('call', {
       'to': targetUserId,
       'offer': offer,
@@ -120,6 +121,7 @@ class SignalingService {
       throw Exception('Not connected to signaling server');
     }
 
+    _currentCallPeerId = targetUserId; // Store peer ID
     _socket!.emit('answer', {'to': targetUserId, 'answer': answer});
 
     print('Call answer sent to: $targetUserId');
@@ -132,8 +134,13 @@ class SignalingService {
       return;
     }
 
+    if (_currentCallPeerId == null) {
+      print('Cannot send ICE candidate - no peer ID');
+      return;
+    }
+
     _socket!.emit('ice-candidate', {
-      'to': _currentUserId,
+      'to': _currentCallPeerId, // ✅ Send to the peer, not yourself
       'candidate': {
         'candidate': candidate.candidate,
         'sdpMid': candidate.sdpMid,
@@ -144,9 +151,10 @@ class SignalingService {
 
   // End call
   void endCall() {
-    if (_socket != null && _socket!.connected) {
-      _socket!.emit('end-call', {'to': _currentUserId});
+    if (_socket != null && _socket!.connected && _currentCallPeerId != null) {
+      _socket!.emit('end-call', {'to': _currentCallPeerId});
     }
+    _currentCallPeerId = null;
   }
 
   // Check connection status
@@ -157,6 +165,7 @@ class SignalingService {
     _socket?.disconnect();
     _socket?.dispose();
     _socket = null;
+    _currentCallPeerId = null;
     print('Signaling service disconnected');
   }
 
