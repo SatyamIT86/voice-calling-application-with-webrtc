@@ -9,6 +9,7 @@ class WebRTCService {
   MediaStream? _remoteStream;
   final SignalingService _signalingService;
   final RecordingService _recordingService;
+  bool _isEnding = false;
 
   Function(MediaStream)? onRemoteStream;
   Function()? onCallEnded;
@@ -85,13 +86,21 @@ class WebRTCService {
           onRemoteStream?.call(_remoteStream!);
 
           // Start recording when remote stream is available
-          _recordingService.startRecording(_localStream!, _remoteStream!);
+          try {
+            _recordingService.startRecording(_localStream!, _remoteStream!);
+          } catch (e) {
+            print('Error starting recording: $e');
+          }
         }
       };
 
       // Handle ICE candidates
       _peerConnection!.onIceCandidate = (RTCIceCandidate candidate) {
-        _signalingService.sendIceCandidate(candidate);
+        try {
+          _signalingService.sendIceCandidate(candidate);
+        } catch (e) {
+          print('Error sending ICE candidate: $e');
+        }
       };
 
       // Handle connection state changes
@@ -100,7 +109,9 @@ class WebRTCService {
         if (state ==
                 RTCPeerConnectionState.RTCPeerConnectionStateDisconnected ||
             state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
-          endCall();
+          if (!_isEnding) {
+            endCall();
+          }
         }
       };
 
@@ -185,6 +196,11 @@ class WebRTCService {
   // Add ICE candidate
   Future<void> _addIceCandidate(Map<String, dynamic> candidateMap) async {
     try {
+      if (_peerConnection == null) {
+        print('Cannot add ICE candidate: peer connection is null');
+        return;
+      }
+
       RTCIceCandidate candidate = RTCIceCandidate(
         candidateMap['candidate'],
         candidateMap['sdpMid'],
@@ -199,10 +215,14 @@ class WebRTCService {
 
   // Toggle microphone
   void toggleMicrophone(bool enabled) {
-    if (_localStream != null) {
-      _localStream!.getAudioTracks().forEach((track) {
-        track.enabled = enabled;
-      });
+    try {
+      if (_localStream != null) {
+        _localStream!.getAudioTracks().forEach((track) {
+          track.enabled = enabled;
+        });
+      }
+    } catch (e) {
+      print('Error toggling microphone: $e');
     }
   }
 
@@ -214,37 +234,92 @@ class WebRTCService {
 
   // End call
   Future<void> endCall() async {
+    // Prevent multiple simultaneous end call attempts
+    if (_isEnding) {
+      print('Already ending call, ignoring duplicate request');
+      return;
+    }
+
+    _isEnding = true;
+    print('WebRTC: Starting end call cleanup');
+
     try {
-      // Stop recording
-      await _recordingService.stopRecording();
+      // Stop recording first
+      try {
+        await _recordingService.stopRecording();
+        print('Recording stopped');
+      } catch (e) {
+        print('Error stopping recording: $e');
+      }
 
       // Close peer connection
-      await _peerConnection?.close();
-      _peerConnection = null;
+      try {
+        if (_peerConnection != null) {
+          await _peerConnection!.close();
+          _peerConnection = null;
+          print('Peer connection closed');
+        }
+      } catch (e) {
+        print('Error closing peer connection: $e');
+      }
 
-      // Stop local stream
-      _localStream?.getTracks().forEach((track) {
-        track.stop();
-      });
-      _localStream?.dispose();
-      _localStream = null;
+      // Stop and dispose local stream
+      try {
+        if (_localStream != null) {
+          _localStream!.getTracks().forEach((track) {
+            try {
+              track.stop();
+            } catch (e) {
+              print('Error stopping local track: $e');
+            }
+          });
+          await _localStream!.dispose();
+          _localStream = null;
+          print('Local stream disposed');
+        }
+      } catch (e) {
+        print('Error disposing local stream: $e');
+      }
 
-      // Stop remote stream
-      _remoteStream?.getTracks().forEach((track) {
-        track.stop();
-      });
-      _remoteStream?.dispose();
-      _remoteStream = null;
+      // Stop and dispose remote stream
+      try {
+        if (_remoteStream != null) {
+          _remoteStream!.getTracks().forEach((track) {
+            try {
+              track.stop();
+            } catch (e) {
+              print('Error stopping remote track: $e');
+            }
+          });
+          await _remoteStream!.dispose();
+          _remoteStream = null;
+          print('Remote stream disposed');
+        }
+      } catch (e) {
+        print('Error disposing remote stream: $e');
+      }
 
       // Notify signaling
-      _signalingService.endCall();
+      try {
+        _signalingService.endCall();
+        print('Signaling notified of call end');
+      } catch (e) {
+        print('Error notifying signaling: $e');
+      }
 
       // Notify UI
-      onCallEnded?.call();
+      try {
+        onCallEnded?.call();
+        print('UI notified of call end');
+      } catch (e) {
+        print('Error notifying UI: $e');
+      }
 
-      print('Call ended');
+      print('Call cleanup completed');
     } catch (e) {
-      print('Error ending call: $e');
+      print('Error in endCall: $e');
+    } finally {
+      _isEnding = false;
     }
   }
 

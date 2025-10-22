@@ -20,6 +20,8 @@ class _AddContactScreenState extends State<AddContactScreen> {
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
+  final _userIdController =
+      TextEditingController(); // ← NEW: Firebase UID field
   bool _isLoading = false;
 
   @override
@@ -29,6 +31,8 @@ class _AddContactScreenState extends State<AddContactScreen> {
       _nameController.text = widget.contact!.name;
       _emailController.text = widget.contact!.email ?? '';
       _phoneController.text = widget.contact!.phone ?? '';
+      _userIdController.text =
+          widget.contact!.userId; // ← Show existing Firebase UID
     }
   }
 
@@ -37,6 +41,7 @@ class _AddContactScreenState extends State<AddContactScreen> {
     _nameController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
+    _userIdController.dispose();
     super.dispose();
   }
 
@@ -54,7 +59,7 @@ class _AddContactScreenState extends State<AddContactScreen> {
       }
 
       final contact = ContactModel(
-        id: widget.contact?.id ?? const Uuid().v4(),
+        id: widget.contact?.id ?? const Uuid().v4(), // Local contact ID
         name: _nameController.text.trim(),
         email: _emailController.text.trim().isEmpty
             ? null
@@ -62,7 +67,7 @@ class _AddContactScreenState extends State<AddContactScreen> {
         phone: _phoneController.text.trim().isEmpty
             ? null
             : _phoneController.text.trim(),
-        userId: authService.currentUserId!,
+        userId: _userIdController.text.trim(), // ← Firebase UID from input
         createdAt: widget.contact?.createdAt ?? DateTime.now(),
       );
 
@@ -99,8 +104,39 @@ class _AddContactScreenState extends State<AddContactScreen> {
         child: Form(
           key: _formKey,
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 20),
+
+              // Instructions
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    Text(
+                      'ℹ️ How to add a contact:',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue,
+                      ),
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      '1. Ask the other person to check their Profile\n'
+                      '2. Copy their Firebase User ID\n'
+                      '3. Paste it in the "Firebase User ID" field below',
+                      style: TextStyle(color: Colors.white70, fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
 
               // Name field
               TextFormField(
@@ -124,13 +160,41 @@ class _AddContactScreenState extends State<AddContactScreen> {
               ),
               const SizedBox(height: 16),
 
-              // Email field
+              // Firebase User ID field (CRITICAL)
+              TextFormField(
+                controller: _userIdController,
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  labelText: 'Firebase User ID *',
+                  hintText: 'Paste their Firebase UID here',
+                  prefixIcon: const Icon(Icons.fingerprint),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  filled: true,
+                  fillColor: Colors.white10,
+                  helperText: 'Get this from their Profile screen',
+                  helperStyle: const TextStyle(color: Colors.white54),
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter Firebase User ID';
+                  }
+                  if (value.length < 10) {
+                    return 'Invalid Firebase User ID';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // Email field (optional)
               TextFormField(
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
                 style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
-                  labelText: 'Email',
+                  labelText: 'Email (optional)',
                   prefixIcon: const Icon(Icons.email),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -149,13 +213,13 @@ class _AddContactScreenState extends State<AddContactScreen> {
               ),
               const SizedBox(height: 16),
 
-              // Phone field
+              // Phone field (optional)
               TextFormField(
                 controller: _phoneController,
                 keyboardType: TextInputType.phone,
                 style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
-                  labelText: 'Phone',
+                  labelText: 'Phone (optional)',
                   prefixIcon: const Icon(Icons.phone),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),

@@ -11,6 +11,7 @@ import '../recordings/recordings_screen.dart';
 import '../call_logs/call_logs_screen.dart';
 import 'package:uuid/uuid.dart';
 import '../auth/login_screen.dart';
+import 'package:flutter/services.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -432,7 +433,70 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 12),
             _buildProfileItem('Email', user?.email ?? 'No email'),
             const SizedBox(height: 12),
-            _buildProfileItem('User ID', user?.uid ?? 'No ID'),
+            // Make Firebase UID selectable and copyable
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Text(
+                      'Firebase User ID',
+                      style: TextStyle(color: Colors.white54, fontSize: 12),
+                    ),
+                    const SizedBox(width: 8),
+                    Icon(Icons.info_outline, size: 14, color: Colors.blue),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.black26,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: Colors.white24),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: SelectableText(
+                          user?.uid ?? 'No ID',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.copy, size: 18),
+                        color: Colors.blue,
+                        onPressed: () {
+                          Clipboard.setData(
+                            ClipboardData(text: user?.uid ?? ''),
+                          );
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('User ID copied to clipboard!'),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                        tooltip: 'Copy ID',
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  '💡 Share this ID with others so they can add you as a contact',
+                  style: TextStyle(
+                    color: Colors.blue,
+                    fontSize: 11,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
         actions: [
@@ -442,27 +506,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildProfileItem(String label, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(color: Colors.white54, fontSize: 12),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ],
     );
   }
 
@@ -573,6 +616,27 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
     }
+  }
+
+  Widget _buildProfileItem(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(color: Colors.white54, fontSize: 12),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
   }
 
   @override
